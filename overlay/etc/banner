@@ -1,0 +1,8 @@
+=========================================================
+ N60 Pro RESCUE - EXPERIMENTAL - not a production router
+ 192.168.6.1 | LAN SSH public-key authentication only
+ Run: rescue-report
+ No automatic BL2/FIP/NMBM migration is configured.
+ Entering RAM-rootfs does not prove NAND is healthy.
+ Keep factory/BL2/FIP backups OFF this device.
+=========================================================

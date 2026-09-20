@@ -1,0 +1,6 @@
+config system
+        option hostname 'N60Pro-Rescue'
+        option timezone 'UTC'
+        option ttylogin '1'
+        option log_size '256'
+        option log_file '/tmp/rescue-system.log'

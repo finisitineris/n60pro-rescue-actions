@@ -1,0 +1,30 @@
+#!/bin/sh
+# Read-only diagnostic commands. Only output file writes target /tmp (RAM).
+set -u
+umask 077
+out="$(mktemp /tmp/n60pro-rescue-report.XXXXXX)" || exit 1
+{
+    echo '===== BUILD POLICY ====='
+    cat /etc/n60pro-rescue-source /etc/n60pro-rescue-layout 2>/dev/null
+    echo '===== BOARD ====='
+    ubus call system board 2>&1
+    uname -a
+    echo '===== CMDLINE ====='
+    cat /proc/cmdline
+    echo '===== ROOT AND MEMORY ====='
+    mount
+    free
+    echo '===== MTD ====='
+    cat /proc/mtd
+    for f in /sys/class/mtd/mtd*/name /sys/class/mtd/mtd*/size /sys/class/mtd/mtd*/erasesize /sys/class/mtd/mtd*/writesize /sys/class/mtd/mtd*/oobsize; do
+        [ -f "$f" ] && { printf '%s=' "$f"; cat "$f"; }
+    done
+    echo '===== UBI (no attach/format/update) ====='
+    ubinfo -a 2>&1
+    echo '===== NETWORK ====='
+    ip -br address 2>/dev/null || ip address
+    echo '===== KERNEL LOG ====='
+    dmesg
+} > "$out" 2>&1
+printf 'REPORT_FILE=%s\n' "$out"
+cat "$out"

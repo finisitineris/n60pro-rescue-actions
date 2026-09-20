@@ -1,0 +1,4 @@
+Uploaded FIT sparse metadata parse: PASS
+load=entry=0x48000000
+Complete extracted DTB CRC32/SHA1 verification: PASS
+Missing kernel/initrd bytes NOT validated, NOT exported.

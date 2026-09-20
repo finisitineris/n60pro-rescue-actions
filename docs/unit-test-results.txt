@@ -1,0 +1,22 @@
+test_cpio_dot_root (test_rescue.RescueTests.test_cpio_dot_root) ... ok
+test_cpio_traversal (test_rescue.RescueTests.test_cpio_traversal) ... ok
+test_cpio_truncated (test_rescue.RescueTests.test_cpio_truncated) ... ok
+test_cpio_valid (test_rescue.RescueTests.test_cpio_valid) ... ok
+test_decompression (test_rescue.RescueTests.test_decompression) ... ok
+test_decompression_limit (test_rescue.RescueTests.test_decompression_limit) ... ok
+test_dts_patch_two_layouts (test_rescue.RescueTests.test_dts_patch_two_layouts) ... ok
+test_duplicate_property_rejected (test_rescue.RescueTests.test_duplicate_property_rejected) ... ok
+test_fdt_truncated_rejected (test_rescue.RescueTests.test_fdt_truncated_rejected) ... ok
+test_kernel_variants_may_differ (test_rescue.RescueTests.test_kernel_variants_may_differ) ... ok
+test_parent_default_packages_are_pruned (test_rescue.RescueTests.test_parent_default_packages_are_pruned) ... ok
+test_parse_fdt (test_rescue.RescueTests.test_parse_fdt) ... ok
+test_public_key_only (test_rescue.RescueTests.test_public_key_only) ... ok
+test_tar_extra_rejected (test_rescue.RescueTests.test_tar_extra_rejected) ... ok
+test_tar_roundtrip (test_rescue.RescueTests.test_tar_roundtrip) ... ok
+test_unknown_layout_rejected (test_rescue.RescueTests.test_unknown_layout_rejected) ... ok
+test_validate_sha_child (test_rescue.RescueTests.test_validate_sha_child) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 0.036s
+
+OK

@@ -1,0 +1,17 @@
+#!/bin/sh
+# Wired-only N60 Pro board description. Do not call private Wi-Fi l1dat helpers.
+. /lib/functions/uci-defaults.sh
+. /lib/functions/system.sh
+
+board_config_update
+case "$(board_name)" in
+    netcore,n60-pro)
+        ucidef_set_interface_lan 'lan1 lan2 lan3 lan4'
+        ;;
+    *)
+        echo 'This rescue image only supports the netcore,n60-pro board identity.' >&2
+        exit 1
+        ;;
+esac
+board_config_flush
+exit 0
