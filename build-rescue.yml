@@ -1,0 +1,171 @@
+name: Build N60 Pro rescue
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_public_key:
+        description: 'One ssh-ed25519 PUBLIC key line; never paste a private key'
+        type: string
+        required: true
+      layout:
+        description: 'Linux UBI range hypothesis; not a hardware compatibility guarantee'
+        type: choice
+        required: true
+        default: linux-original-474m
+        options:
+          - linux-original-474m
+          - uboot-default-460m
+      build_jobs:
+        description: 'Compiler jobs (2 recommended; no automatic full retry on failure)'
+        type: choice
+        required: true
+        default: '2'
+        options:
+          - '2'
+          - '4'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: n60pro-rescue-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    defaults:
+      run:
+        shell: bash
+    env:
+      BUILD_JOBS: ${{ inputs.build_jobs }}
+      RESCUE_LAYOUT: ${{ inputs.layout }}
+      RESCUE_SSH_PUBLIC_KEY: ${{ inputs.ssh_public_key }}
+      TZ: UTC
+      LC_ALL: C.UTF-8
+    steps:
+      - name: Checkout build recipe
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Validate inputs and run fast offline tests
+        run: |
+          set -euo pipefail
+          mkdir -p dist/logs
+          python3 -m unittest discover -s tests -v 2>&1 | tee dist/logs/unit-tests.log
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, 'scripts')
+          from rescue import validate_key, LAYOUTS
+          validate_key(os.environ['RESCUE_SSH_PUBLIC_KEY'])
+          if os.environ['RESCUE_LAYOUT'] not in LAYOUTS:
+              raise SystemExit('Unsupported layout')
+          if os.environ['BUILD_JOBS'] not in ('2','4'):
+              raise SystemExit('Unsupported job count')
+          PY
+
+      - name: Install build tools on disposable runner
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential binutils bison flex gawk gettext git file rsync \
+            ca-certificates curl wget unzip zip patch xz-utils zstd bzip2 cpio \
+            gcc-multilib g++-multilib libncurses-dev libssl-dev zlib1g-dev \
+            libelf-dev libgnutls28-dev libgmp-dev libmpc-dev libmpfr-dev \
+            python3 python3-dev python3-setuptools python3-pyelftools python3-ply \
+            swig cmake ninja-build pkgconf autoconf automake autopoint libtool \
+            libtool-bin gperf help2man texinfo device-tree-compiler u-boot-tools \
+            squashfs-tools clang llvm libclang-dev libzstd-dev time
+          df -h
+          python3 - <<'PY'
+          import shutil
+          free = shutil.disk_usage('.').free
+          if free < 28 * 1024**3:
+              raise SystemExit('Less than 28 GiB available. Use a larger clean runner; nothing was deleted automatically.')
+          PY
+          dpkg-query -W > dist/logs/host-packages.txt
+          uname -a > dist/logs/host.txt
+
+      - name: Fetch locked source and feeds
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          python3 scripts/checkout_sources.py --source work/openwrt 2>&1 | tee dist/logs/checkout.log
+
+      - name: Cache source downloads only
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: work/openwrt/dl
+          key: n60-downloads-v1-${{ runner.os }}-${{ hashFiles('config/source-lock.json', 'config/rescue.config') }}
+          restore-keys: |
+            n60-downloads-v1-${{ runner.os }}-
+
+      - name: Compile and validate same-build rescue image
+        id: firmware
+        run: |
+          set -euo pipefail
+          bash scripts/build.sh "$GITHUB_WORKSPACE/work/openwrt" "$GITHUB_WORKSPACE/dist" "$RESCUE_LAYOUT"
+
+      - name: Publish validated candidates (not a boot certification)
+        if: ${{ success() && steps.firmware.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: n60pro-rescue-${{ inputs.layout }}-${{ github.run_number }}
+          path: |
+            dist/*-rescue-web-EXPERIMENTAL.bin
+            dist/*-initramfs-kernel.bin
+            dist/normal-sysupgrade-SAMEBUILD-REFERENCE.tar
+            dist/compiled-device-tree.*
+            dist/validation.json
+            dist/SHA256SUMS
+            dist/source-lock.json
+            dist/locked-feeds.conf
+            dist/source.patch
+            dist/source-dts-*.dts
+            dist/build-assumptions.json
+            dist/expanded.config
+            dist/*.manifest
+            dist/DO-NOT-AUTO-FLASH.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Preserve diagnostics on success or failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: n60pro-diagnostics-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            dist/logs/
+            dist/*config
+            dist/*json
+            dist/*.dts
+            dist/*.txt
+            work/openwrt/logs/
+          include-hidden-files: false
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
+
+      - name: Write summary
+        if: ${{ always() }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path('dist/validation.json')
+          message='Build did not reach validated image output. Download the diagnostics artifact.'
+          if p.exists():
+              r=json.loads(p.read_text())
+              message=('OFFLINE checks passed. Hardware boot test: **NOT PERFORMED**.\n\n'
+                       f"Candidate: `{r['candidate']}`\n\nSHA256: `{r['candidate_sha256']}`\n\n"
+                       'LAN `192.168.6.1`, key-auth SSH only. No web UI. No automatic flashing.\n\n'
+                       'This is a rescue candidate for the old U-Boot, not a new bootloader migration image.')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('# N60 Pro rescue build\n\n'+message+'\n')
+          PY
