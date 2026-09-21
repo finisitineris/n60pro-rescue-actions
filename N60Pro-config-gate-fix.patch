@@ -1,0 +1,339 @@
+diff --git a/RECIPE-SHA256SUMS b/RECIPE-SHA256SUMS
+index a0e35c0..16afbae 100644
+--- a/RECIPE-SHA256SUMS
++++ b/RECIPE-SHA256SUMS
+@@ -6,6 +6,7 @@ e91ced67bf14e672e6818f447535b402162823ac0226e89079542bff8bb03cb6  .github/workfl
+ 342be286348a7a6291a7f894f4eeff59e526cd2008804e950d7f4e0bee036277  README.md
+ 96572231f61196f95dfb2b8769ad0bc7a98d297ffe749ee58509e7f559025334  config/rescue.config
+ b42f8611e43cb9ec08a7ba8f7bb65c9bd62abdac8a665e24161ca6aeb3cc0207  config/source-lock.json
++b0ef47726f76644f249d3315eba7992254278c5e912d796e03a4cac8bcb8f28a  docs/FIX-CONFIG-GATE.md
+ 9edab53b547456880867becf69fe0c680d655980fa39c2aa53cacc2ce4bfc510  docs/VALIDATION.md
+ b876eba41ce97e1c8c8c4607dcf682fbde4840bde28874d5aee1b147dc3719ef  docs/real-fit-metadata-check.txt
+ cde955b8af65acc8b2b78ca3c56b243d9ee78f6d9549e9699ba4f80f11452bc3  docs/unit-test-results.txt
+@@ -17,7 +18,8 @@ bc2e67e5ae9459469247ec67c1cfea3513af9a78b74f1a939fb8c8183599ae78  overlay/etc/co
+ 0968055cbd654fc3eccb12ba66370f5b0ac5bfb14ccaed795fd05ae15e76cdc5  overlay/etc/config/system
+ 3faf2793ca6795ed169e0ec5f5e6ef60710cc36f16e10e6072a6a8e4d62e5c52  overlay/etc/sysctl.d/99-rescue.conf
+ 4201c01aec7d7a27235c589655ad07cf6736c0c3a99bd933ffb4453fd32c1198  overlay/usr/sbin/rescue-report
+-17f1b1bf91e09262b1a6853902aef3d32e4041c1c5ea4a8e14ffef9632f84062  scripts/build.sh
++e199c5af3d9855b1af218bd2f6ac39260ec815df9af6718771dfc872358af56c  scripts/build.sh
+ 5eb1088404e2916fc58ba94aab51d99adaed06c15c182329f7c316dfb62aca1c  scripts/checkout_sources.py
+-4efe98d691e37d080b0e15d6649a9ff66e3a09af1153f5165035d11139caa708  scripts/rescue.py
++a9dee2ccea9c497b69cd2b43688d35a05d041cc9e9b10e2f277250ec866303a0  scripts/rescue.py
++443bef89e6e7ad8736a9786f129f619104b0b0aa161bed64114125751aa1c754  tests/test_config.py
+ e510e43bc37b8d8b5c1fe50af252377711bd70a798ec81848c38f2c6ecf66355  tests/test_rescue.py
+diff --git a/docs/FIX-CONFIG-GATE.md b/docs/FIX-CONFIG-GATE.md
+new file mode 100644
+index 0000000..c495423
+--- /dev/null
++++ b/docs/FIX-CONFIG-GATE.md
+@@ -0,0 +1,41 @@
++# Configuration gate fix — 2026-09-21
++
++Base recipe: `fc785f88b9d294fde2dece01cbe0065ba6a8b269`.
++
++## Scope
++
++Fix the false rejection of
++`CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=y` as a selected package.
++Real package identities now come from `tmp/.packageinfo` top-level `Package:`
++records. Description/Config multiline blocks are skipped through their `@@`
++terminators. Missing, unreadable, empty, malformed or obviously incomplete
++metadata fails closed. Existing forbidden-package and required-symbol rules
++are unchanged; no special exemption for Haproxy, LuCI or any name suffix.
++
++`build.sh` now copies `.config` to `expanded.config` and `.packageinfo` to
++`packageinfo.txt` BEFORE `configuration-check`. Both destination names already
++match the existing diagnostics upload glob, so no workflow change is required.
++
++## Verification
++
++- Original 17 offline tests: PASS before the change.
++- New regression tests reproduced the old false rejection and missing diagnostics.
++- Complete suite after the fix: 32 tests, all PASS (Python unittest discovery).
++- Python syntax checks and existing Bash/POSIX shell checks: PASS.
++- A shell integration test executes the real build.sh with stubbed external
++  phases. It forces configuration-check to exit 23, verifies both diagnostics
++  survive, and verifies download/compile are never invoked after that failure.
++- No full OpenWrt `make defconfig` or cross-compile was run in this environment.
++- No firmware was flashed and no router was contacted.
++
++Passing these tests fixes the reproduced configuration-gate bug; it does not
++certify a full firmware build or hardware compatibility. A genuinely selected
++forbidden package will still stop the next run, with diagnostics available.
++
++## Use the corrected recipe
++
++Merge the repair pull request, or apply the supplied patch to the same baseline.
++Start a NEW `Build N60 Pro rescue` workflow run on the updated branch. Do not use
++`Re-run jobs` on the old failed run: GitHub retains that run's original commit.
++Keep the same source lock, layout and SSH public key. No cache purge is required
++by this change. Complete firmware compilation remains manually triggered.
+diff --git a/scripts/build.sh b/scripts/build.sh
+index 83e11ce..30a921c 100644
+--- a/scripts/build.sh
++++ b/scripts/build.sh
+@@ -24,8 +24,11 @@ phase feeds-index timeout 20m ./scripts/feeds update -a
+ phase feeds-install timeout 20m ./scripts/feeds install -a
+ phase prepare python3 "$ROOT/scripts/rescue.py" prepare --source "$SRC" --out "$OUT" --layout "$LAYOUT"
+ phase defconfig timeout 10m make defconfig
+-phase configuration-check python3 "$ROOT/scripts/rescue.py" check-config --source "$SRC"
++# Preserve the actual inputs even when the safety check rejects the configuration.
++# .txt keeps the hidden source metadata in the existing diagnostics artifact glob.
+ cp .config "$OUT/expanded.config"
++cp tmp/.packageinfo "$OUT/packageinfo.txt"
++phase configuration-check python3 "$ROOT/scripts/rescue.py" check-config --source "$SRC"
+ # Limited parallel download. A real error stops the run; no blanket rerun at -j1.
+ phase download timeout 40m make download -j4
+ phase compile timeout --signal=TERM --kill-after=2m 250m make -j"$JOBS" V=s
+diff --git a/scripts/rescue.py b/scripts/rescue.py
+index 5b19fa0..b1193c7 100644
+--- a/scripts/rescue.py
++++ b/scripts/rescue.py
+@@ -246,17 +246,54 @@ endef'''
+         'root_and_fit_source':'same source tree, feeds, configuration and build run'},indent=2)+'\n')
+ 
+ 
++def read_package_names(src: Path) -> set[str]:
++    """Read real package identities, not package-specific Kconfig feature flags.
++
++    package-dumpinfo.mk emits Package: records plus free-form Description/Config
++    blocks ending in @@. A CONFIG_PACKAGE_ prefix alone is not a package ID.
++    Missing or malformed metadata must never disable the package safety gate.
++    """
++    path = src / 'tmp/.packageinfo'
++    try:
++        text = path.read_text(encoding='utf-8')
++    except (OSError, UnicodeError) as exc:
++        raise ValueError(f'Cannot read package metadata {path}; run make defconfig first') from exc
++    names: set[str] = set()
++    in_block = False
++    for line_number, line in enumerate(text.splitlines(), 1):
++        if in_block:
++            if line == '@@':
++                in_block = False
++            continue
++        if line.startswith(('Description:', 'Config:')):
++            in_block = True
++            continue
++        if line.startswith('Package:'):
++            name = line[len('Package:'):].strip()
++            require(bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.+\-]*', name)),
++                    f'Invalid package metadata Package: record at {path}:{line_number}')
++            # Feed overrides may repeat identities. They are still the same symbol.
++            names.add(name)
++    require(not in_block, f'Unterminated package metadata block in {path}')
++    require(bool(names), f'No Package: records in package metadata {path}')
++    # These packages are required by this recipe. A partial index is not usable.
++    missing = {'dropbear', 'ubi-utils', 'mtd', 'dnsmasq'} - names
++    require(not missing, f'Incomplete package metadata {path}: missing {", ".join(sorted(missing))}')
++    return names
++
++
+ def check_config(src: Path):
+     txt=(src/'.config').read_text(); entries=dict(re.findall(r'^(CONFIG_[^=\s]+)=(.*)$',txt,re.M))
+     for s in ['TARGET_mediatek','TARGET_mediatek_filogic','TARGET_mediatek_filogic_DEVICE_netcore_n60-pro',
+               'TARGET_ROOTFS_INITRAMFS','TARGET_ROOTFS_INITRAMFS_SEPARATE','TARGET_INITRAMFS_COMPRESSION_XZ',
+               'TARGET_ROOTFS_SQUASHFS','PACKAGE_dropbear','PACKAGE_ubi-utils','PACKAGE_mtd','PACKAGE_dnsmasq']:
+         require(entries.get('CONFIG_'+s)=='y',f'Required Kconfig symbol not enabled: {s}')
+-    for key,val in entries.items():
+-        if val!='y': continue
+-        if key.startswith('CONFIG_PACKAGE_'):
+-            pkg=key[len('CONFIG_PACKAGE_'):]
+-            require(not (pkg.startswith(('luci-','wpad','hostapd','kmod-mt79','kmod-mt_wifi','uboot-mediatek','arm-trusted-firmware')) or pkg in ['luci','automount','default-settings','default-settings-chn','dockerd']),f'Unexpected rescue package selected: {pkg}')
++    # Only symbols whose entire suffix is a real package name select packages.
++    # e.g. luci-app-passwall_INCLUDE_Haproxy may be y while its parent is disabled.
++    for pkg in sorted(read_package_names(src)):
++        if entries.get('CONFIG_PACKAGE_'+pkg) != 'y':
++            continue
++        require(not (pkg.startswith(('luci-','wpad','hostapd','kmod-mt79','kmod-mt_wifi','uboot-mediatek','arm-trusted-firmware')) or pkg in ['luci','automount','default-settings','default-settings-chn','dockerd']),f'Unexpected rescue package selected: {pkg}')
+     targets=[k for k,v in entries.items() if '_DEVICE_' in k and k.startswith('CONFIG_TARGET_') and v=='y']
+     require(targets==['CONFIG_TARGET_mediatek_filogic_DEVICE_netcore_n60-pro'],'More than one target selected')
+ 
+diff --git a/tests/test_config.py b/tests/test_config.py
+new file mode 100644
+index 0000000..3e4bdf0
+--- /dev/null
++++ b/tests/test_config.py
+@@ -0,0 +1,182 @@
++"""Configuration-gate regressions; no downloads, compiler or router access."""
++import importlib.util
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import tempfile
++import unittest
++
++BASE = Path(__file__).resolve().parents[1]
++SPEC = importlib.util.spec_from_file_location('rescue_config_test', BASE / 'scripts/rescue.py')
++RESCUE = importlib.util.module_from_spec(SPEC)
++SPEC.loader.exec_module(RESCUE)
++
++REQUIRED = (
++    'TARGET_mediatek', 'TARGET_mediatek_filogic',
++    'TARGET_mediatek_filogic_DEVICE_netcore_n60-pro',
++    'TARGET_ROOTFS_INITRAMFS', 'TARGET_ROOTFS_INITRAMFS_SEPARATE',
++    'TARGET_INITRAMFS_COMPRESSION_XZ', 'TARGET_ROOTFS_SQUASHFS',
++    'PACKAGE_dropbear', 'PACKAGE_ubi-utils', 'PACKAGE_mtd', 'PACKAGE_dnsmasq',
++)
++PACKAGES = ('dropbear', 'ubi-utils', 'mtd', 'dnsmasq', 'libc', 'uboot-envtools',
++            'luci-app-passwall', 'luci-app-ttyd', 'wpad-openssl', 'kmod-mt_wifi',
++            'dockerd', 'default-settings', 'uboot-mediatek-n60pro',
++            'arm-trusted-firmware-mt7986')
++
++
++def config(extra=''):
++    return ''.join(f'CONFIG_{symbol}=y\n' for symbol in REQUIRED) + extra
++
++
++def metadata(names=PACKAGES):
++    # Same top-level Package/Description/Config delimiters as package-dumpinfo.mk.
++    return ''.join(f'Source-Makefile: package/{name}/Makefile\nPackage: {name}\n'
++                   f'Title: {name}\nDescription: test package\n@@\n\n' for name in names)
++
++
++class PackageConfigTests(unittest.TestCase):
++    def setUp(self):
++        self.temp = tempfile.TemporaryDirectory()
++        self.addCleanup(self.temp.cleanup)
++        self.src = Path(self.temp.name)
++        (self.src / 'tmp').mkdir()
++        (self.src / '.config').write_text(config(), encoding='utf-8')
++        self.info = self.src / 'tmp/.packageinfo'
++        self.info.write_text(metadata(), encoding='utf-8')
++
++    def assert_accepted(self):
++        try:
++            RESCUE.check_config(self.src)
++        except (ValueError, OSError) as exc:
++            self.fail(f'Valid configuration was rejected: {exc}')
++
++    def test_minimal_real_packages_are_accepted(self):
++        self.assert_accepted()
++
++    def test_parent_disabled_feature_flags_do_not_select_a_package(self):
++        (self.src / '.config').write_text(config(
++            '# CONFIG_PACKAGE_luci-app-passwall is not set\n'
++            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Haproxy=y\n'
++            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_SingBox=y\n'
++            'CONFIG_PACKAGE_luci-app-passwall_INCLUDE_Xray=y\n'), encoding='utf-8')
++        self.assert_accepted()
++
++    def test_real_forbidden_packages_remain_rejected(self):
++        for name in PACKAGES[6:]:
++            with self.subTest(package=name):
++                (self.src / '.config').write_text(config(f'CONFIG_PACKAGE_{name}=y\n'), encoding='utf-8')
++                with self.assertRaisesRegex(ValueError, 'Unexpected rescue package selected:'):
++                    RESCUE.check_config(self.src)
++
++    def test_real_package_named_like_feature_flag_is_not_exempted(self):
++        name = 'luci-app-passwall_INCLUDE_Haproxy'
++        self.info.write_text(metadata(PACKAGES + (name,)), encoding='utf-8')
++        (self.src / '.config').write_text(config(f'CONFIG_PACKAGE_{name}=y\n'), encoding='utf-8')
++        with self.assertRaisesRegex(ValueError, 'Unexpected rescue package selected:'):
++            RESCUE.check_config(self.src)
++
++    def test_missing_metadata_fails_closed(self):
++        self.info.unlink()
++        with self.assertRaisesRegex(ValueError, '[Pp]ackage metadata'):
++            RESCUE.check_config(self.src)
++
++    def test_empty_or_non_metadata_text_fails_closed(self):
++        for value in ('', 'not package metadata\n', 'Package: \n', 'Package: invalid/name\n'):
++            with self.subTest(value=value):
++                self.info.write_text(value, encoding='utf-8')
++                with self.assertRaisesRegex(ValueError, '[Pp]ackage metadata'):
++                    RESCUE.check_config(self.src)
++
++    def test_invalid_encoding_fails_closed(self):
++        self.info.write_bytes(b'Package: dropbear\n\xff')
++        with self.assertRaisesRegex(ValueError, '[Pp]ackage metadata'):
++            RESCUE.check_config(self.src)
++
++    def test_missing_required_package_record_fails_closed(self):
++        self.info.write_text(metadata(tuple(n for n in PACKAGES if n != 'dropbear')), encoding='utf-8')
++        with self.assertRaisesRegex(ValueError, '[Pp]ackage metadata'):
++            RESCUE.check_config(self.src)
++
++    def test_package_text_in_description_and_config_is_not_a_record(self):
++        name = 'luci-app-passwall_INCLUDE_Haproxy'
++        extra = f'Description: example text\nPackage: {name}\n@@\nConfig:\nPackage: {name}\n@@\n'
++        self.info.write_text(metadata() + extra, encoding='utf-8')
++        (self.src / '.config').write_text(config(f'CONFIG_PACKAGE_{name}=y\n'), encoding='utf-8')
++        self.assert_accepted()
++
++    def test_unterminated_metadata_block_fails_closed(self):
++        self.info.write_text(metadata() + 'Config:\nbool "Incomplete"\n', encoding='utf-8')
++        with self.assertRaisesRegex(ValueError, '[Pp]ackage metadata'):
++            RESCUE.check_config(self.src)
++
++    def test_duplicate_records_from_overrides_are_accepted(self):
++        self.info.write_text(metadata() + metadata(('dropbear',)), encoding='utf-8')
++        self.assert_accepted()
++
++    def test_missing_required_kconfig_still_rejected(self):
++        text = config().replace('CONFIG_PACKAGE_mtd=y\n', '# CONFIG_PACKAGE_mtd is not set\n')
++        (self.src / '.config').write_text(text, encoding='utf-8')
++        with self.assertRaisesRegex(ValueError, 'Required Kconfig symbol not enabled: PACKAGE_mtd'):
++            RESCUE.check_config(self.src)
++
++    def test_second_device_still_rejected(self):
++        (self.src / '.config').write_text(config('CONFIG_TARGET_mediatek_filogic_DEVICE_other=y\n'), encoding='utf-8')
++        with self.assertRaisesRegex(ValueError, 'More than one target selected'):
++            RESCUE.check_config(self.src)
++
++    def test_missing_metadata_cli_is_nonzero(self):
++        self.info.unlink()
++        import sys
++        result = subprocess.run([sys.executable, str(BASE / 'scripts/rescue.py'),
++                                 'check-config', '--source', str(self.src)],
++                                text=True, capture_output=True, timeout=10)
++        self.assertNotEqual(result.returncode, 0)
++        self.assertIn('package metadata', result.stderr.lower())
++
++
++class BuildDiagnosticsTests(unittest.TestCase):
++    @unittest.skipUnless(shutil.which('bash') and shutil.which('timeout'), 'needs bash and timeout')
++    def test_diagnostics_survive_configuration_check_failure(self):
++        # Exercise the real build.sh ordering with stubbed external phases.
++        # The checker deliberately exits 23; no downloads/compilation can occur.
++        with tempfile.TemporaryDirectory(prefix='n60-gate-test-') as temp:
++            root = Path(temp)
++            src, out, tools = root / 'source', root / 'dist', root / 'tools'
++            (src / 'scripts').mkdir(parents=True)
++            (src / 'tmp').mkdir()
++            tools.mkdir()
++            (src / '.config').write_text(config(), encoding='utf-8')
++            (src / 'tmp/.packageinfo').write_text(metadata(), encoding='utf-8')
++            calls = root / 'calls.txt'
++            stubs = {
++                'id': '#!/bin/sh\necho 1000\n',
++                'git': '#!/bin/sh\necho 1750000000\n',
++                'make': '#!/bin/sh\necho "make $*" >> "$CALL_LOG"\nexit 0\n',
++                'python3': '#!/bin/sh\necho "python3 $*" >> "$CALL_LOG"\n'
++                           'if [ "$2" = check-config ]; then echo "injected rejection" >&2; exit 23; fi\n',
++            }
++            for name, content in stubs.items():
++                p = tools / name
++                p.write_text(content, encoding='utf-8')
++                p.chmod(0o755)
++            feeds = src / 'scripts/feeds'
++            feeds.write_text('#!/bin/sh\nexit 0\n', encoding='utf-8')
++            feeds.chmod(0o755)
++            env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ['PATH'],
++                       CALL_LOG=str(calls), BUILD_JOBS='2')
++            result = subprocess.run(['bash', str(BASE / 'scripts/build.sh'), str(src), str(out)],
++                                    env=env, capture_output=True, text=True, timeout=20)
++            self.assertEqual(result.returncode, 23, result.stdout + result.stderr)
++            for name, original in [('expanded.config', src / '.config'),
++                                   ('packageinfo.txt', src / 'tmp/.packageinfo')]:
++                p = out / name
++                self.assertTrue(p.is_file(), f'{name} lost when the checker failed')
++                self.assertEqual(p.read_bytes(), original.read_bytes())
++            self.assertIn('injected rejection', (out / 'logs/configuration-check.log').read_text())
++            self.assertNotIn('make download', calls.read_text())
++            self.assertNotIn('make -j', calls.read_text())
++
++
++if __name__ == '__main__':
++    unittest.main()

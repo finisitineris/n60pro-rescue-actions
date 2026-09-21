@@ -246,17 +246,54 @@ endef'''
         'root_and_fit_source':'same source tree, feeds, configuration and build run'},indent=2)+'\n')
 
 
+def read_package_names(src: Path) -> set[str]:
+    """Read real package identities, not package-specific Kconfig feature flags.
+
+    package-dumpinfo.mk emits Package: records plus free-form Description/Config
+    blocks ending in @@. A CONFIG_PACKAGE_ prefix alone is not a package ID.
+    Missing or malformed metadata must never disable the package safety gate.
+    """
+    path = src / 'tmp/.packageinfo'
+    try:
+        text = path.read_text(encoding='utf-8')
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f'Cannot read package metadata {path}; run make defconfig first') from exc
+    names: set[str] = set()
+    in_block = False
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if in_block:
+            if line == '@@':
+                in_block = False
+            continue
+        if line.startswith(('Description:', 'Config:')):
+            in_block = True
+            continue
+        if line.startswith('Package:'):
+            name = line[len('Package:'):].strip()
+            require(bool(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.+\-]*', name)),
+                    f'Invalid package metadata Package: record at {path}:{line_number}')
+            # Feed overrides may repeat identities. They are still the same symbol.
+            names.add(name)
+    require(not in_block, f'Unterminated package metadata block in {path}')
+    require(bool(names), f'No Package: records in package metadata {path}')
+    # These packages are required by this recipe. A partial index is not usable.
+    missing = {'dropbear', 'ubi-utils', 'mtd', 'dnsmasq'} - names
+    require(not missing, f'Incomplete package metadata {path}: missing {", ".join(sorted(missing))}')
+    return names
+
+
 def check_config(src: Path):
     txt=(src/'.config').read_text(); entries=dict(re.findall(r'^(CONFIG_[^=\s]+)=(.*)$',txt,re.M))
     for s in ['TARGET_mediatek','TARGET_mediatek_filogic','TARGET_mediatek_filogic_DEVICE_netcore_n60-pro',
               'TARGET_ROOTFS_INITRAMFS','TARGET_ROOTFS_INITRAMFS_SEPARATE','TARGET_INITRAMFS_COMPRESSION_XZ',
               'TARGET_ROOTFS_SQUASHFS','PACKAGE_dropbear','PACKAGE_ubi-utils','PACKAGE_mtd','PACKAGE_dnsmasq']:
         require(entries.get('CONFIG_'+s)=='y',f'Required Kconfig symbol not enabled: {s}')
-    for key,val in entries.items():
-        if val!='y': continue
-        if key.startswith('CONFIG_PACKAGE_'):
-            pkg=key[len('CONFIG_PACKAGE_'):]
-            require(not (pkg.startswith(('luci-','wpad','hostapd','kmod-mt79','kmod-mt_wifi','uboot-mediatek','arm-trusted-firmware')) or pkg in ['luci','automount','default-settings','default-settings-chn','dockerd']),f'Unexpected rescue package selected: {pkg}')
+    # Only symbols whose entire suffix is a real package name select packages.
+    # e.g. luci-app-passwall_INCLUDE_Haproxy may be y while its parent is disabled.
+    for pkg in sorted(read_package_names(src)):
+        if entries.get('CONFIG_PACKAGE_'+pkg) != 'y':
+            continue
+        require(not (pkg.startswith(('luci-','wpad','hostapd','kmod-mt79','kmod-mt_wifi','uboot-mediatek','arm-trusted-firmware')) or pkg in ['luci','automount','default-settings','default-settings-chn','dockerd']),f'Unexpected rescue package selected: {pkg}')
     targets=[k for k,v in entries.items() if '_DEVICE_' in k and k.startswith('CONFIG_TARGET_') and v=='y']
     require(targets==['CONFIG_TARGET_mediatek_filogic_DEVICE_netcore_n60-pro'],'More than one target selected')
 

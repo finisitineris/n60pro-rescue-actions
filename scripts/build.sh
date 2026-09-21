@@ -24,8 +24,11 @@ phase feeds-index timeout 20m ./scripts/feeds update -a
 phase feeds-install timeout 20m ./scripts/feeds install -a
 phase prepare python3 "$ROOT/scripts/rescue.py" prepare --source "$SRC" --out "$OUT" --layout "$LAYOUT"
 phase defconfig timeout 10m make defconfig
-phase configuration-check python3 "$ROOT/scripts/rescue.py" check-config --source "$SRC"
+# Preserve the actual inputs even when the safety check rejects the configuration.
+# .txt keeps the hidden source metadata in the existing diagnostics artifact glob.
 cp .config "$OUT/expanded.config"
+cp tmp/.packageinfo "$OUT/packageinfo.txt"
+phase configuration-check python3 "$ROOT/scripts/rescue.py" check-config --source "$SRC"
 # Limited parallel download. A real error stops the run; no blanket rerun at -j1.
 phase download timeout 40m make download -j4
 phase compile timeout --signal=TERM --kill-after=2m 250m make -j"$JOBS" V=s
