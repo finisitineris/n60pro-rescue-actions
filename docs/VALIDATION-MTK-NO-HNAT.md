@@ -41,3 +41,16 @@ in source preparation, with GNU make regression tests evaluating the result.
 
 After the hidden-default follow-up: **43 tests passed, no skips**. The real
 `prepare` command also passed on another fresh copy of the locked source.
+
+## Full CI verification and PPE follow-up
+
+Run 35554014759 used commit `1870739`. The configuration gate and download
+passed. The HNAT patch applied cleanly, and `mtk_eth_soc.o` compiled without
+the original seven errors. The next fatal error was six reads of `ct->mark`
+in `mtk_ppe_offload.c` while the optional field was disabled.
+
+The follow-up adds the kernel configuration dependencies `NETFILTER_ADVANCED=y`
+and `NF_CONNTRACK_MARK=y` to the pinned Filogic target. No new package or PPE
+driver patch is added. The dependency helper's tests failed before implementation;
+the full suite now passes **46 tests, no skips**. Real source preparation passed
+on another fresh checkout copy. Full CI validation of this follow-up is pending.

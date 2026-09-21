@@ -57,6 +57,9 @@ README.md
 将补丁放到内核补丁序列末尾，并把补丁及 `kernel-compatibility.json` 保存到产物中。
 更新仓库时必须一并提交 `patches/`。原因和验证范围见 [网卡编译修复说明](docs/FIX-MTK-NO-HNAT.md)。
 
+锁定源码的 PPE QoS 代码还依赖连接标记字段；`prepare` 会在内核配置中补齐
+`NETFILTER_ADVANCED` 和 `NF_CONNTRACK_MARK`，沿用现有的内建 conntrack。
+
 ### 2. 准备一个 SSH Ed25519 公钥
 
 本镜像不设置通用默认 root 密码，采用你自己的 SSH 公钥登录。**只提供 `.pub`，私钥留在电脑。**

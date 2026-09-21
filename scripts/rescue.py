@@ -217,6 +217,17 @@ endef'''
     return text[:match.start()] + replacement + text[match.end():]
 
 
+def enable_ppe_conntrack_mark(text: str) -> str:
+    """Supply the two bools required by the pinned vendor PPE's ct->mark reads."""
+    lines = text.splitlines()
+    require(lines.count('CONFIG_NF_CONNTRACK=y') == 1 and lines.count('CONFIG_NETFILTER=y') == 1,
+            'Unexpected PPE conntrack baseline')
+    require(not re.search(r'^(?:# )?CONFIG_(?:NF_CONNTRACK_MARK|NETFILTER_ADVANCED)\b', text, re.M),
+            'Unexpected PPE conntrack mark baseline')
+    text = text.replace('CONFIG_NETFILTER=y\n', 'CONFIG_NETFILTER=y\nCONFIG_NETFILTER_ADVANCED=y\n')
+    return text.replace('CONFIG_NF_CONNTRACK=y\n', 'CONFIG_NF_CONNTRACK=y\nCONFIG_NF_CONNTRACK_MARK=y\n')
+
+
 def install_kernel_compat(src: Path, out: Path):
     """Install the late no-HNAT fix only over the reviewed upstream baseline."""
     for relative, expected in HNAT_BASELINE_HASHES.items():
@@ -249,6 +260,8 @@ def prepare(src: Path, out: Path, layout: str, key: str):
     install_kernel_compat(src, out)
     uboot=src/'package/boot/uboot-mediatek/Makefile'
     uboot.write_text(disable_n60pro_uboot_default(uboot.read_text()))
+    kernel_config=src/'target/linux/mediatek/filogic/config-6.6'
+    kernel_config.write_text(enable_ppe_conntrack_mark(kernel_config.read_text()))
     dts=src/'target/linux/mediatek/dts/mt7986a-netcore-n60-pro.dts'
     original=dts.read_text(); changed=patch_dts(original,layout); dts.write_text(changed)
     # Change only the selected device's package list/recipe, not other boards.

@@ -40,6 +40,21 @@ hidden, so Kconfig ignores an explicit user `n` and restores its device-based
 Other device variants are unchanged. The allowed `uboot-envtools` utility
 remains enabled. This enforces the existing rescue-only policy.
 
+## PPE conntrack dependency found by full CI
+
+Run 35554014759 passed the configuration gate and compiled `mtk_eth_soc.o`.
+It then failed at six `ct->mark` accesses in `mtk_ppe_offload.c`. The vendor
+QoS patch uses that field unconditionally, but the minimal kernel configuration
+disabled `NF_CONNTRACK_MARK`.
+
+The Filogic target already enables `NETFILTER` and `NF_CONNTRACK`. Preparation
+now adds `NETFILTER_ADVANCED=y` and `NF_CONNTRACK_MARK=y` to its kernel config.
+Both are necessary: the real Linux Kconfig makes MARK depend on ADVANCED.
+This supplies the vendor driver's dependency without changing its queue-selection
+code. It does not select the `kmod-nf-conntrack` package, its sysctl defaults, or
+the unrelated conntrack-zones option. Existing source/feed and image policies
+remain the same. Preparation rejects a changed target baseline before editing.
+
 ## Validation
 
 The C regression fixture contains the affected upstream code and minimal host
