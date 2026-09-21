@@ -94,3 +94,8 @@ Kernel preparation must subsequently show that patch being applied. Complete
 build success is established only when compilation, packaging and image
 validation all finish successfully. No router or flash operation is part of
 this repair.
+
+The complete build and offline validation subsequently passed in
+[run 35557563714](https://github.com/finisitineris/n60pro-rescue-actions/actions/runs/35557563714)
+at recipe commit `84ffdf6`. See [validation details](VALIDATION-MTK-NO-HNAT.md)
+for downloaded-artifact checks and the exact candidate SHA256.

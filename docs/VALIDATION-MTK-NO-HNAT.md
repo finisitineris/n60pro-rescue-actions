@@ -23,7 +23,7 @@
 The tests use verbatim affected driver regions with minimal kernel interface
 stubs. They do not constitute a complete Linux driver cross-build. No full
 OpenWrt `make defconfig`, firmware compilation, image packaging or hardware
-boot/flash test was performed locally. A new CI run is required to verify the
+boot/flash test was performed locally. The remote results below establish the
 complete firmware build from the corrected revision.
 
 ## First remote verification and follow-up
@@ -53,4 +53,39 @@ The follow-up adds the kernel configuration dependencies `NETFILTER_ADVANCED=y`
 and `NF_CONNTRACK_MARK=y` to the pinned Filogic target. No new package or PPE
 driver patch is added. The dependency helper's tests failed before implementation;
 the full suite now passes **46 tests, no skips**. Real source preparation passed
-on another fresh checkout copy. Full CI validation of this follow-up is pending.
+on another fresh checkout copy.
+
+The actual locked `package-metadata.pl` and `kconfig.pl` scripts were replayed
+against CI5 metadata and its expanded configuration. Both flags survive the
+merge, and dependency evaluation of the original Linux 6.6.133 Netfilter Kconfig
+confirms MARK is enabled only when ADVANCED is also enabled.
+
+## Successful full firmware validation
+
+[Run 35557563714](https://github.com/finisitineris/n60pro-rescue-actions/actions/runs/35557563714)
+completed successfully in 1h 6m 29s using recipe commit
+`84ffdf68cd8e0f083b3de3b421d97e586abc32c1` and the unchanged pinned source/feeds.
+All 46 tests, the package configuration gate, firmware compilation, packaging
+and offline image checks passed. Ethernet, PPE/offload and WED objects compiled
+and the kernel linked successfully.
+
+Downloaded artifacts were checked again locally:
+
+- All 19 entries in the CI SHA256 manifest match, including the two diagnostic
+  files supplied by the separate diagnostics artifact.
+- Candidate size: 11,223,040 bytes; SHA256:
+  `9f78482284b6744f0ac300843ba4219139adb211df2f21e7749b1aae9dd278f9`.
+- Candidate FIT matches the standalone initramfs FIT; its root payload matches
+  the ordinary same-build sysupgrade reference. FIT hashes and DTB checks pass.
+- The compiled DTB retains UBI start `0x00580000`, size `0x1da80000` (474.5 MiB),
+  and the protected BL2/environment/factory/FIP partitions.
+- The embedded kernel configuration extracted from the ARM64 Image confirms
+  `NETFILTER_ADVANCED=y`, `NF_CONNTRACK=y` and `NF_CONNTRACK_MARK=y`.
+- The initrd contains 836 entries; CI verified all 571 regular rootfs files
+  and equality of 23 module payloads between rootfs and initrd.
+- Both actual package selection and the final package manifest exclude the
+  forbidden Bootloader, HNAT/Wi-Fi, Docker and LuCI packages.
+
+The successful artifact is an offline-validated rescue candidate. No router
+was contacted, flashed or boot-tested. Later documentation-only commits do not
+change the firmware's recorded recipe revision above.
