@@ -28,6 +28,15 @@ TAR_BOARD = 'sysupgrade-netcore_n60-pro'
 BASE = Path(__file__).resolve().parents[1]
 PARTS = {'bl2':(0,0x100000), 'u-boot-env':(0x100000,0x80000),
          'factory':(0x180000,0x200000), 'fip':(0x380000,0x200000)}
+HNAT_COMPAT_PATCH = '9999-99-n60pro-rescue-no-hnat.patch'
+HNAT_BASELINE_HASHES = {
+    'target/linux/mediatek/patches-6.6/9999-01-hnat.patch':
+        '21e74e4a3bee83f9a608240299782efe6d561b0cb1ddba38d4e3a404e84c0782',
+    'target/linux/mediatek/patches-6.6/9999-02-mtk_enhance.patch':
+        '0a94b89507477186142ede359f9105f3ea41f8d9c28a1bf68046679c26689337',
+    'target/linux/mediatek/files-6.6/drivers/net/ethernet/mediatek/mtk_hnat/nf_hnat_mtk.h':
+        '598e12ff7d48c1cb3198cc3ec310ca808825b6c23a432a4953fe36e8b6a98a42',
+}
 
 
 def require(ok: bool, message: str) -> None:
@@ -185,12 +194,36 @@ def prune_parent_defaults(text: str) -> str:
     return text.replace('include $(INCLUDE_DIR)/target.mk','DEVICE_TYPE:=basic\ninclude $(INCLUDE_DIR)/target.mk')
 
 
+def install_kernel_compat(src: Path, out: Path):
+    """Install the late no-HNAT fix only over the reviewed upstream baseline."""
+    for relative, expected in HNAT_BASELINE_HASHES.items():
+        baseline = src / relative
+        require(baseline.is_file(), f'Missing kernel patch baseline: {relative}')
+        require(hashlib.sha256(baseline.read_bytes()).hexdigest() == expected,
+                f'Unexpected kernel patch baseline: {relative}')
+    patch = BASE / 'patches' / HNAT_COMPAT_PATCH
+    require(patch.is_file(), f'Missing kernel compatibility patch: {patch}')
+    payload = patch.read_bytes()
+    require(bool(payload), f'Empty kernel compatibility patch: {patch}')
+    target = src / 'target/linux/mediatek/patches-6.6' / HNAT_COMPAT_PATCH
+    require(not target.exists(), f'Kernel compatibility patch already exists: {target}')
+    target.write_bytes(payload)
+    (out / HNAT_COMPAT_PATCH).write_bytes(payload)
+    (out / 'kernel-compatibility.json').write_text(json.dumps({
+        'patch': HNAT_COMPAT_PATCH,
+        'sha256': hashlib.sha256(payload).hexdigest(),
+        'upstream_sha256': HNAT_BASELINE_HASHES,
+    }, indent=2) + '\n', encoding='utf-8')
+    print(f'Installed kernel compatibility patch: {HNAT_COMPAT_PATCH}')
+
+
 def prepare(src: Path, out: Path, layout: str, key: str):
     require((src/'.git').is_dir(),'Use a fresh Git checkout, not your backup folder')
     out.mkdir(parents=True,exist_ok=True); key=validate_key(key)
     source_lock=json.loads((BASE/'config/source-lock.json').read_text())
     actual=run(['git','-C',src,'rev-parse','HEAD'],capture_output=True,text=True).stdout.strip()
     require(actual==source_lock['source']['sha'],'Checkout differs from source-lock.json')
+    install_kernel_compat(src, out)
     dts=src/'target/linux/mediatek/dts/mt7986a-netcore-n60-pro.dts'
     original=dts.read_text(); changed=patch_dts(original,layout); dts.write_text(changed)
     # Change only the selected device's package list/recipe, not other boards.
@@ -293,7 +326,7 @@ def check_config(src: Path):
     for pkg in sorted(read_package_names(src)):
         if entries.get('CONFIG_PACKAGE_'+pkg) != 'y':
             continue
-        require(not (pkg.startswith(('luci-','wpad','hostapd','kmod-mt79','kmod-mt_wifi','uboot-mediatek','arm-trusted-firmware')) or pkg in ['luci','automount','default-settings','default-settings-chn','dockerd']),f'Unexpected rescue package selected: {pkg}')
+        require(not (pkg.startswith(('luci-','wpad','hostapd','kmod-mt79','kmod-mt_wifi','uboot-mediatek','arm-trusted-firmware','u-boot-','trusted-firmware-a-')) or pkg in ['luci','automount','default-settings','default-settings-chn','dockerd']),f'Unexpected rescue package selected: {pkg}')
     targets=[k for k,v in entries.items() if '_DEVICE_' in k and k.startswith('CONFIG_TARGET_') and v=='y']
     require(targets==['CONFIG_TARGET_mediatek_filogic_DEVICE_netcore_n60-pro'],'More than one target selected')
 

@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - 'scripts/**'
+      - 'patches/**'
       - 'tests/**'
       - 'config/**'
       - 'overlay/**'

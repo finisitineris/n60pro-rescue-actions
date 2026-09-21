@@ -22,7 +22,14 @@ REQUIRED = (
 PACKAGES = ('dropbear', 'ubi-utils', 'mtd', 'dnsmasq', 'libc', 'uboot-envtools',
             'luci-app-passwall', 'luci-app-ttyd', 'wpad-openssl', 'kmod-mt_wifi',
             'dockerd', 'default-settings', 'uboot-mediatek-n60pro',
-            'arm-trusted-firmware-mt7986')
+            'arm-trusted-firmware-mt7986',
+            'trusted-firmware-a-mt7981-ram-ddr3',
+            'trusted-firmware-a-mt7981-ram-ddr4',
+            'trusted-firmware-a-mt7986-ram-ddr3',
+            'trusted-firmware-a-mt7986-ram-ddr4',
+            'trusted-firmware-a-mt7986-spim-nand-ddr4',
+            'trusted-firmware-a-mt7988-ram-comb',
+            'u-boot-mt7986_netcore_n60-pro')
 
 
 def config(extra=''):

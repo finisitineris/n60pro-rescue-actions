@@ -126,6 +126,8 @@ jobs:
             dist/source-lock.json
             dist/locked-feeds.conf
             dist/source.patch
+            dist/9999-99-n60pro-rescue-no-hnat.patch
+            dist/kernel-compatibility.json
             dist/source-dts-*.dts
             dist/build-assumptions.json
             dist/expanded.config
@@ -146,6 +148,7 @@ jobs:
             dist/*json
             dist/*.dts
             dist/*.txt
+            dist/*.patch
             work/openwrt/logs/
           include-hidden-files: false
           if-no-files-found: warn

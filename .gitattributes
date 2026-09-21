@@ -1,7 +1,9 @@
-* text=auto
+* text=auto eol=lf
 *.py text eol=lf
 *.sh text eol=lf
 *.yml text eol=lf
 *.config text eol=lf
 *.conf text eol=lf
+*.patch text eol=lf
+*.c text eol=lf
 overlay/** text eol=lf

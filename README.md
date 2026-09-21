@@ -43,6 +43,7 @@ config/rescue.config
 scripts/rescue.py
 scripts/checkout_sources.py
 scripts/build.sh
+patches/9999-99-n60pro-rescue-no-hnat.patch
 overlay/...
 tests/test_rescue.py
 README.md
@@ -51,6 +52,10 @@ README.md
 `.github` 是点开头的目录，不能遗漏。用 Git 提交会包含它；用网页拖拽上传时也要确认它实际存在。工作流文件应在默认分支中。工作流使用只读 contents 权限，不需要 PAT、路由器登录密码、FIP、factory 或原机备份。
 
 一次普通 push 只触发约束为 10 分钟的**脚本测试**，不编译整个固件。固件构建只由你手动运行。
+
+本配方包含无 HNAT 救援配置的 MediaTek 网卡兼容补丁。`prepare` 会核对上游文件指纹，
+将补丁放到内核补丁序列末尾，并把补丁及 `kernel-compatibility.json` 保存到产物中。
+更新仓库时必须一并提交 `patches/`。原因和验证范围见 [网卡编译修复说明](docs/FIX-MTK-NO-HNAT.md)。
 
 ### 2. 准备一个 SSH Ed25519 公钥
 

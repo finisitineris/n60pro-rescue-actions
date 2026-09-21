@@ -1,0 +1,88 @@
+From: N60 Pro rescue maintainers
+Subject: [PATCH] net: mediatek: guard optional HNAT coordination
+
+The locked vendor patch stack includes nf_hnat_mtk.h only for HNAT=y/m,
+but its RX redirect and WiFi reset coordination use that header's symbols
+unconditionally. Exclude those HNAT-only blocks and their private counters
+when HNAT is disabled. Keep the normal Ethernet reset path, completion
+object and notifier registration intact. Enabled preprocessing is unchanged.
+
+Applies after 9999-05 on padavanonly/immortalwrt-mt798x-6.6
+commit ec9ef10efc65da1e6d1de4e2c043c0e13d08eed8 (Linux 6.6.133).
+
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -39,8 +39,10 @@
+ #if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+ #include "mtk_hnat/nf_hnat_mtk.h"
+ #endif
++#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+ static int mtk_wifi_num = 0;
+ static int mtk_rest_cnt = 0;
++#endif
+ atomic_t eth1_in_br = ATOMIC_INIT(0);
+ EXPORT_SYMBOL(eth1_in_br);
+ struct net_device *ppd_dev;
+@@ -2507,12 +2509,14 @@
+ 			mac = RX_DMA_GET_SPORT(trxd.rxd4) - 1;
+ 		}
+ 
++#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+ 		if ( (mac == 4) || ((FIELD_GET(MTK_RXD4_PPE_CPU_REASON, trxd.rxd4)) == HIT_BIND_FORCE_TO_CPU))
+ 		{
+ 		
+ 		mac = atomic_read(&eth1_in_br);
+ 		sent_ppd = 1;
+ 		}
++#endif
+ 		if (unlikely(mac < 0 || mac >= MTK_MAX_DEVS ||
+ 			     !eth->netdev[mac]))
+ 			goto release_desc;
+@@ -5485,6 +5489,7 @@
+ 	 * possible race during FE reset since it can run releasing RTNL lock.
+ 	 */
+ 	mtk_prepare_for_reset(eth);
++#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+ 	/* Trigger Wifi SER reset */
+ 	for (i = 0; i < MTK_MAX_DEVS; i++) {
+ 		if (!eth->netdev[i])
+@@ -5495,6 +5500,7 @@
+ 		rtnl_lock();
+ 		break;
+ 	}
++#endif
+ 	/* stop all devices to make sure that dma is properly shut down */
+ 	for (i = 0; i < MTK_MAX_DEVS; i++) {
+ 		if (!eth->netdev[i] || !netif_running(eth->netdev[i]))
+@@ -5532,6 +5538,7 @@
+ 
+ 	mtk_wed_fe_reset_complete();
+ 	mtk_restore_qdma_cfg(eth);
++#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+ 	for (i = 0; i < MTK_MAX_DEVS; i++) {
+                 if (!eth->netdev[i])
+                         continue;
+@@ -5540,6 +5547,7 @@
+ 		call_netdevice_notifiers(MTK_FE_RESET_DONE, eth->netdev[i]);
+ 		printk("[%s] WiFi SER reset done !\n", __func__);
+         }
++#endif
+ 	rtnl_unlock();
+ }
+ 
+@@ -7187,6 +7195,7 @@
+ 				   unsigned long event, void *ptr)
+ {
+ 	switch (event) {
++#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+ 	case MTK_WIFI_RESET_DONE:
+ 		mtk_rest_cnt--;
+ 		if(!mtk_rest_cnt) {
+@@ -7202,6 +7211,7 @@
+ 		mtk_wifi_num--;
+ 		mtk_rest_cnt = mtk_wifi_num;
+ 		break;
++#endif
+ 	default:
+ 		break;
+ 	}
