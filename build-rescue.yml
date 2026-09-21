@@ -3,6 +3,14 @@ name: Build N60 Pro rescue
 on:
   workflow_dispatch:
     inputs:
+      build_mode:
+        description: 'rescue image, or a standalone mtd-rw module matching the already booted CI6 kernel'
+        type: choice
+        required: true
+        default: rescue
+        options:
+          - rescue
+          - mtd-rw
       ssh_public_key:
         description: 'One ssh-ed25519 PUBLIC key line; never paste a private key'
         type: string
@@ -26,6 +34,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: n60pro-rescue-${{ github.ref }}
@@ -97,6 +106,16 @@ jobs:
           mkdir -p work
           python3 scripts/checkout_sources.py --source work/openwrt 2>&1 | tee dist/logs/checkout.log
 
+      - name: Recover verified CI6 module reference
+        if: ${{ inputs.build_mode == 'mtd-rw' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 35557563714 --repo finisitineris/n60pro-rescue-actions \
+            --name n60pro-rescue-linux-original-474m-6 --dir work/ci6-reference
+          python3 scripts/module_reference.py extract --artifact-dir work/ci6-reference --out dist/reference
+
       - name: Cache source downloads only
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -107,9 +126,26 @@ jobs:
 
       - name: Compile and validate same-build rescue image
         id: firmware
+        if: ${{ inputs.build_mode != 'mtd-rw' }}
         run: |
           set -euo pipefail
           bash scripts/build.sh "$GITHUB_WORKSPACE/work/openwrt" "$GITHUB_WORKSPACE/dist" "$RESCUE_LAYOUT"
+
+      - name: Compile and validate module for the existing CI6 kernel
+        id: module
+        if: ${{ inputs.build_mode == 'mtd-rw' }}
+        run: |
+          set -euo pipefail
+          bash scripts/build-mtd-module.sh "$GITHUB_WORKSPACE/work/openwrt" "$GITHUB_WORKSPACE/dist"
+
+      - name: Publish matched standalone module (not installed or loaded)
+        if: ${{ success() && steps.module.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: n60pro-mtd-rw-ci6-${{ github.run_number }}
+          path: dist/validated/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Publish validated candidates (not a boot certification)
         if: ${{ success() && steps.firmware.outcome == 'success' }}
@@ -126,6 +162,8 @@ jobs:
             dist/source-lock.json
             dist/locked-feeds.conf
             dist/source.patch
+            dist/9999-99-n60pro-rescue-no-hnat.patch
+            dist/kernel-compatibility.json
             dist/source-dts-*.dts
             dist/build-assumptions.json
             dist/expanded.config
@@ -146,6 +184,7 @@ jobs:
             dist/*json
             dist/*.dts
             dist/*.txt
+            dist/*.patch
             work/openwrt/logs/
           include-hidden-files: false
           if-no-files-found: warn
@@ -160,6 +199,11 @@ jobs:
           from pathlib import Path
           p=Path('dist/validation.json')
           message='Build did not reach validated image output. Download the diagnostics artifact.'
+          module=Path('dist/validated/validation.json')
+          if module.exists():
+              message=('Standalone mtd-rw module passed offline compatibility checks for the original CI6 kernel. '
+                       'No router contact, installation, module loading, or flash write was performed. '
+                       'Download the n60pro-mtd-rw-ci6 artifact and inspect validation.json.')
           if p.exists():
               r=json.loads(p.read_text())
               message=('OFFLINE checks passed. Hardware boot test: **NOT PERFORMED**.\n\n'

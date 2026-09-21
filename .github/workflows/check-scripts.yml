@@ -24,6 +24,6 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tests -v
           python3 -m py_compile scripts/*.py
-          bash -n scripts/build.sh
+          bash -n scripts/build.sh scripts/build-mtd-module.sh
           sh -n overlay/usr/sbin/rescue-report
           sh -n overlay/etc/board.d/02_network
