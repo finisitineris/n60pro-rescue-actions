@@ -32,8 +32,12 @@ Source/feed locks, NAND layout, DTS policy and image validation are unchanged.
 
 The diagnostics also showed seven unwanted bootloader package defaults:
 six `trusted-firmware-a-*` variants and `u-boot-mt7986_netcore_n60-pro`.
-The recipe now explicitly disables those defaults and the configuration gate
-recognizes their actual upstream prefixes. The allowed `uboot-envtools` utility
+The recipe explicitly disables the visible ATF defaults and the configuration
+gate recognizes their actual upstream prefixes. N60 Pro's U-Boot package is
+hidden, so Kconfig ignores an explicit user `n` and restores its device-based
+`default y`; it then selects the NAND ATF dependency. `prepare` therefore sets
+`DEFAULT:=n` in that one upstream U-Boot variant before `make defconfig`.
+Other device variants are unchanged. The allowed `uboot-envtools` utility
 remains enabled. This enforces the existing rescue-only policy.
 
 ## Validation

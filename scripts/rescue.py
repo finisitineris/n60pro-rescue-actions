@@ -194,6 +194,29 @@ def prune_parent_defaults(text: str) -> str:
     return text.replace('include $(INCLUDE_DIR)/target.mk','DEVICE_TYPE:=basic\ninclude $(INCLUDE_DIR)/target.mk')
 
 
+def disable_n60pro_uboot_default(text: str) -> str:
+    """Keep the selected device's hidden U-Boot package out of rescue builds."""
+    pattern = r'^define U-Boot/mt7986_netcore_n60-pro\n.*?^endef$'
+    matches = list(re.finditer(pattern, text, re.M | re.S))
+    require(len(matches) == 1, 'Missing/ambiguous N60 Pro U-Boot variant')
+    expected = '''define U-Boot/mt7986_netcore_n60-pro
+  NAME:=Netcore N60 Pro
+  BUILD_SUBTARGET:=filogic
+  BUILD_DEVICES:=netcore_n60-pro
+  UBOOT_CONFIG:=mt7986_netcore_n60-pro
+  UBOOT_IMAGE:=u-boot.fip
+  BL2_BOOTDEV:=spim-nand
+  BL2_SOC:=mt7986
+  BL2_DDRTYPE:=ddr4
+  DEPENDS:=+trusted-firmware-a-mt7986-spim-nand-ddr4
+endef'''
+    match = matches[0]
+    require(match.group() == expected, 'Unexpected N60 Pro U-Boot baseline')
+    replacement = expected.replace('  BUILD_DEVICES:=netcore_n60-pro\n',
+                                   '  BUILD_DEVICES:=netcore_n60-pro\n  DEFAULT:=n\n')
+    return text[:match.start()] + replacement + text[match.end():]
+
+
 def install_kernel_compat(src: Path, out: Path):
     """Install the late no-HNAT fix only over the reviewed upstream baseline."""
     for relative, expected in HNAT_BASELINE_HASHES.items():
@@ -224,6 +247,8 @@ def prepare(src: Path, out: Path, layout: str, key: str):
     actual=run(['git','-C',src,'rev-parse','HEAD'],capture_output=True,text=True).stdout.strip()
     require(actual==source_lock['source']['sha'],'Checkout differs from source-lock.json')
     install_kernel_compat(src, out)
+    uboot=src/'package/boot/uboot-mediatek/Makefile'
+    uboot.write_text(disable_n60pro_uboot_default(uboot.read_text()))
     dts=src/'target/linux/mediatek/dts/mt7986a-netcore-n60-pro.dts'
     original=dts.read_text(); changed=patch_dts(original,layout); dts.write_text(changed)
     # Change only the selected device's package list/recipe, not other boards.
